@@ -26,9 +26,9 @@ def get_youtube_transcript(video_url):
             
         video_id = video_id_match.group(1)
         
-        # Try to get transcript
+        # Try to get transcript - FIXED THIS LINE
         try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)  # ← REMOVE THE DOT
             text = " ".join([t['text'] for t in transcript_list])
             if text.strip():
                 st.success(f"✅ Found transcript ({len(text)} characters)")
@@ -40,21 +40,6 @@ def get_youtube_transcript(video_url):
     except Exception as e:
         st.error(f"❌ Error: {str(e)}")
         return None
-
-def chunk_text(text: str, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
-    """Simple text chunking"""
-    if not text:
-        return []
-    
-    words = text.split()
-    chunks = []
-    
-    for i in range(0, len(words), size - overlap):
-        chunk = " ".join(words[i:i + size])
-        if len(chunk) > 20:
-            chunks.append(chunk)
-    
-    return chunks
 
 def get_chroma_client_and_collection():
     client = PersistentClient(path="./chroma_db")
