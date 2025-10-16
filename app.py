@@ -4,17 +4,12 @@ import uuid
 import textwrap
 from chromadb import PersistentClient
 
-# Remove this line if you don't use numpy directly:
-# import numpy as np
-
-# ... rest of your code stays the same ...
-
 # Config
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
 
 def get_youtube_transcript(video_url):
-    """Working transcript fetcher"""
+    """Working transcript fetcher for Streamlit Cloud"""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         
@@ -27,40 +22,41 @@ def get_youtube_transcript(video_url):
         video_id = video_id_match.group(1)
         st.info("🔄 Fetching transcript...")
 
-        # Method 1: Try to get transcript directly
+        # Try multiple methods
         try:
+            # Method 1: Direct transcript fetch
             transcript = YouTubeTranscriptApi.get_transcript(video_id)
             text = " ".join([t['text'] for t in transcript])
             if text.strip():
                 st.success(f"✅ Found transcript ({len(text)} characters)")
                 return text.strip()
         except Exception as e:
-            st.warning(f"⚠️ Direct method failed: {str(e)}")
+            st.warning("⚠️ Trying alternative methods...")
 
-        # Method 2: Try with language specification
+        # Method 2: Try with specific language
         try:
             transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
             text = " ".join([t['text'] for t in transcript])
             if text.strip():
-                st.success(f"✅ Found English transcript ({len(text)} characters)")
+                st.success(f"✅ Found English transcript")
                 return text.strip()
         except:
             pass
 
-        # Method 3: List available transcripts and try any
+        # Method 3: List and try all available transcripts
         try:
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
             for transcript in transcript_list:
                 try:
-                    text = " ".join([t['text'] for t in transcript.fetch()])
+                    text_data = transcript.fetch()
+                    text = " ".join([t['text'] for t in text_data])
                     if text.strip():
                         st.success(f"✅ Found {transcript.language} transcript")
                         return text.strip()
                 except:
                     continue
         except Exception as e:
-            st.error(f"❌ No subtitles available: {str(e)}")
-            return None
+            st.error(f"❌ Could not access transcripts: {str(e)}")
 
         st.error("❌ No subtitles found for this video")
         return None
@@ -68,6 +64,21 @@ def get_youtube_transcript(video_url):
     except Exception as e:
         st.error(f"❌ Error: {str(e)}")
         return None
+
+def chunk_text(text: str, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
+    """Simple text chunking"""
+    if not text:
+        return []
+    
+    words = text.split()
+    chunks = []
+    
+    for i in range(0, len(words), size - overlap):
+        chunk = " ".join(words[i:i + size])
+        if len(chunk) > 20:
+            chunks.append(chunk)
+    
+    return chunks
 
 def get_chroma_client_and_collection():
     client = PersistentClient(path="./chroma_db")
