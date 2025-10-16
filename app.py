@@ -14,7 +14,7 @@ CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
 
 def get_youtube_transcript(video_url):
-    """Simplified transcript fetcher"""
+    """Working transcript fetcher"""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         
@@ -25,17 +25,45 @@ def get_youtube_transcript(video_url):
             return None
             
         video_id = video_id_match.group(1)
-        
-        # Try to get transcript - FIXED THIS LINE
+        st.info("🔄 Fetching transcript...")
+
+        # Method 1: Try to get transcript directly
         try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)  # ← REMOVE THE DOT
-            text = " ".join([t['text'] for t in transcript_list])
+            transcript = YouTubeTranscriptApi.get_transcript(video_id)
+            text = " ".join([t['text'] for t in transcript])
             if text.strip():
                 st.success(f"✅ Found transcript ({len(text)} characters)")
                 return text.strip()
         except Exception as e:
+            st.warning(f"⚠️ Direct method failed: {str(e)}")
+
+        # Method 2: Try with language specification
+        try:
+            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+            text = " ".join([t['text'] for t in transcript])
+            if text.strip():
+                st.success(f"✅ Found English transcript ({len(text)} characters)")
+                return text.strip()
+        except:
+            pass
+
+        # Method 3: List available transcripts and try any
+        try:
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            for transcript in transcript_list:
+                try:
+                    text = " ".join([t['text'] for t in transcript.fetch()])
+                    if text.strip():
+                        st.success(f"✅ Found {transcript.language} transcript")
+                        return text.strip()
+                except:
+                    continue
+        except Exception as e:
             st.error(f"❌ No subtitles available: {str(e)}")
             return None
+
+        st.error("❌ No subtitles found for this video")
+        return None
             
     except Exception as e:
         st.error(f"❌ Error: {str(e)}")
