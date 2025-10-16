@@ -4,6 +4,11 @@ import uuid
 import textwrap
 from chromadb import PersistentClient
 
+# Remove this line if you don't use numpy directly:
+# import numpy as np
+
+# ... rest of your code stays the same ...
+
 # Config
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
