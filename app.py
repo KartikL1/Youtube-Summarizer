@@ -1,5 +1,15 @@
+import streamlit as st
+import re
+import uuid
+import textwrap
+from chromadb import PersistentClient
+
+# Config
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 50
+
 def get_youtube_transcript(video_url):
-    """Working transcript fetcher using pytube captions"""
+    """Working transcript fetcher"""
     try:
         from pytube import YouTube
         
@@ -66,3 +76,91 @@ def get_youtube_transcript(video_url):
     except Exception as e:
         st.error(f"❌ Error: {str(e)}")
         return None
+
+def chunk_text(text, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
+    """Simple text chunking"""
+    if not text:
+        return []
+    
+    words = text.split()
+    chunks = []
+    
+    for i in range(0, len(words), size - overlap):
+        chunk = " ".join(words[i:i + size])
+        if len(chunk) > 20:
+            chunks.append(chunk)
+    
+    return chunks
+
+def get_chroma_client_and_collection():
+    client = PersistentClient(path="./chroma_db")
+    collection = client.get_or_create_collection(name="youtube_rag")
+    return client, collection
+
+def add_transcript_to_collection(youtube_url):
+    text = get_youtube_transcript(youtube_url)
+    if not text:
+        return None
+
+    chunks = chunk_text(text)
+    if len(chunks) == 0:
+        return None
+
+    client, collection = get_chroma_client_and_collection()
+    ids = [str(uuid.uuid4()) for _ in chunks]
+    metadatas = [{"youtube_url": youtube_url, "chunk_index": i} for i in range(len(chunks))]
+    
+    collection.add(ids=ids, metadatas=metadatas, documents=chunks)
+    return {"n_chunks": len(chunks)}
+
+def retrieve_relevant_chunks(query, top_k=3):
+    client, collection = get_chroma_client_and_collection()
+    results = collection.query(query_texts=[query], n_results=top_k, include=["documents", "metadatas"])
+    docs = results['documents'][0] if results['documents'] else []
+    metas = results.get('metadatas', [[]])[0]
+    return docs, metas
+
+def answer_question(question, context_chunks):
+    if not context_chunks:
+        return "No relevant information found."
+    
+    # Simple answer generation
+    combined_context = " ".join(context_chunks)
+    return f"Based on the video: {combined_context[:300]}..."
+
+# Streamlit UI
+st.set_page_config(page_title="YouTube RAG", layout="wide")
+st.title("🎥 YouTube RAG Q&A")
+
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    st.header("Add Video")
+    youtube_url = st.text_input("YouTube URL", placeholder="https://www.youtube.com/watch?v=...")
+    
+    if st.button("Process Video"):
+        if youtube_url:
+            result = add_transcript_to_collection(youtube_url)
+            if result:
+                st.success(f"✅ Processed {result['n_chunks']} chunks!")
+            else:
+                st.error("❌ Failed to process video")
+
+with col2:
+    st.header("Ask Questions")
+    question = st.text_input("Your question", placeholder="What is this video about?")
+    
+    if st.button("Get Answer"):
+        if question:
+            docs, metas = retrieve_relevant_chunks(question)
+            if docs:
+                answer = answer_question(question, docs)
+                st.success(f"💬 {answer}")
+                
+                st.subheader("Retrieved Content:")
+                for i, doc in enumerate(docs):
+                    st.write(f"**Passage {i+1}:** {doc[:200]}...")
+            else:
+                st.info("💡 No videos processed yet. Add a video first!")
+
+st.info("💡 Try videos with captions like TED Talks or educational content")
