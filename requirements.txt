@@ -1,4 +1,4 @@
-streamlit
-chromadb
-youtube-transcript-api
-pytube
+streamlit==1.30.0
+chromadb==0.4.22
+youtube-transcript-api==0.6.0
+pytube==15.0.0
