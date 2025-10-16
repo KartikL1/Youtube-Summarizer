@@ -9,9 +9,9 @@ CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
 
 def get_youtube_transcript(video_url):
-    """Working transcript fetcher"""
+    """Working transcript fetcher - FIXED"""
     try:
-        from pytube import YouTube
+        from youtube_transcript_api import YouTubeTranscriptApi
         
         # Extract video ID
         video_id_match = re.search(r"(?:v=|/)([0-9A-Za-z_-]{11})", video_url)
@@ -22,76 +22,22 @@ def get_youtube_transcript(video_url):
         video_id = video_id_match.group(1)
         st.info("🔄 Fetching transcript...")
 
-        # Create YouTube object
-        yt = YouTube(video_url)
-        
-        # Get available caption tracks
-        caption_tracks = yt.captions
-        
-        if not caption_tracks:
-            st.error("❌ No captions available for this video")
+        # FIXED: Use the correct method - it's NOT YouTubeTranscriptApi.get_transcript()
+        # The correct way is to call the function directly:
+        try:
+            # This is the correct syntax
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+            text = " ".join([t['text'] for t in transcript_list])
+            if text.strip():
+                st.success(f"✅ Found transcript ({len(text)} characters)")
+                return text.strip()
+        except Exception as e:
+            st.error(f"❌ No subtitles available: {str(e)}")
             return None
-        
-        # Try English first, then any available language
-        languages_to_try = ['en', 'a.en', 'en-US', 'en-GB']
-        
-        for lang_code in languages_to_try:
-            if lang_code in caption_tracks:
-                try:
-                    caption = caption_tracks[lang_code]
-                    transcript = caption.generate_srt_captions()
-                    # Convert SRT to plain text
-                    lines = transcript.split('\n')
-                    text_lines = []
-                    for line in lines:
-                        # Skip timestamp lines and empty lines
-                        if '-->' not in line and line.strip() and not line.strip().isdigit():
-                            text_lines.append(line.strip())
-                    text = ' '.join(text_lines)
-                    if text.strip():
-                        st.success(f"✅ Found {lang_code} captions ({len(text)} characters)")
-                        return text.strip()
-                except Exception as e:
-                    continue
-        
-        # If no specific language found, try any available caption
-        for lang_code, caption in caption_tracks.items():
-            try:
-                transcript = caption.generate_srt_captions()
-                lines = transcript.split('\n')
-                text_lines = []
-                for line in lines:
-                    if '-->' not in line and line.strip() and not line.strip().isdigit():
-                        text_lines.append(line.strip())
-                text = ' '.join(text_lines)
-                if text.strip():
-                    st.success(f"✅ Found {lang_code} captions ({len(text)} characters)")
-                    return text.strip()
-            except Exception as e:
-                continue
-        
-        st.error("❌ Could not extract captions from available tracks")
-        return None
-        
+            
     except Exception as e:
         st.error(f"❌ Error: {str(e)}")
         return None
-
-def chunk_text(text, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
-    """Simple text chunking"""
-    if not text:
-        return []
-    
-    words = text.split()
-    chunks = []
-    
-    for i in range(0, len(words), size - overlap):
-        chunk = " ".join(words[i:i + size])
-        if len(chunk) > 20:
-            chunks.append(chunk)
-    
-    return chunks
-
 def get_chroma_client_and_collection():
     client = PersistentClient(path="./chroma_db")
     collection = client.get_or_create_collection(name="youtube_rag")
