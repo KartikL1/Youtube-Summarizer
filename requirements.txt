@@ -1,5 +1,5 @@
-openai>=1.0.0
-tiktoken
 streamlit
 chromadb
 pytube>=15.0
+openai>=1.0.0
+tiktoken
