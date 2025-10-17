@@ -13,7 +13,11 @@ client = PersistentClient(path=CHROMA_DB_PATH)
 collection = client.get_or_create_collection("youtube_transcripts")
 
 # Initialize OpenAI client
-openai_client = OpenAI()
+from openai import OpenAI
+
+openai_client = OpenAI(api_key="sk-1234567890abcdef1234567890abcdef12345678")
+
+
 
 # ---------------- Embedding Function ----------------
 def get_embedding(text, model=EMBEDDING_MODEL):
