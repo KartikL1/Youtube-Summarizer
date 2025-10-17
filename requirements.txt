@@ -1,3 +1,5 @@
 streamlit
 chromadb
-pytube
+pytube>=15.0
+openai
+tiktoken
