@@ -3,7 +3,6 @@ import uuid
 from chromadb import PersistentClient
 from pytube import YouTube
 from openai import OpenAI
-from openai.embeddings_utils import get_embedding
 
 # ---------------- Config ----------------
 CHROMA_DB_PATH = "./chroma_db"
@@ -16,7 +15,13 @@ collection = client.get_or_create_collection("youtube_transcripts")
 # Initialize OpenAI client
 openai_client = OpenAI()
 
-# ---------------- Utilities ----------------
+# ---------------- Embedding Function ----------------
+def get_embedding(text, model=EMBEDDING_MODEL):
+    """Return embedding vector for given text using latest OpenAI SDK"""
+    response = openai_client.embeddings.create(input=text, model=model)
+    return response.data[0].embedding
+
+# ---------------- Transcript Utilities ----------------
 def get_transcript(video_url):
     """Fetch transcript using pytube with safety checks."""
     try:
@@ -38,8 +43,10 @@ def get_transcript(video_url):
             caption = list(yt.captions.values())[0]
 
         srt_text = caption.generate_srt_captions()
-        # Remove numbers and timestamps from SRT
-        lines = [line for line in srt_text.splitlines() if line.strip() and not line.strip().isdigit() and "-->" not in line]
+        lines = [
+            line for line in srt_text.splitlines()
+            if line.strip() and not line.strip().isdigit() and "-->" not in line
+        ]
         text = " ".join(lines)
         if not text.strip():
             raise RuntimeError("Captions are empty after processing.")
@@ -59,6 +66,7 @@ def chunk_text(text, chunk_size=500, overlap=50):
         i += chunk_size - overlap
     return chunks
 
+# ---------------- ChromaDB Storage ----------------
 def add_transcript(video_url):
     """Fetch transcript, create embeddings, and store in ChromaDB."""
     text = get_transcript(video_url)
@@ -68,14 +76,14 @@ def add_transcript(video_url):
 
     ids = [str(uuid.uuid4()) for _ in chunks]
     metadatas = [{"video_url": video_url, "chunk_index": i} for i in range(len(chunks))]
-    embeddings = [get_embedding(chunk, model=EMBEDDING_MODEL) for chunk in chunks]
+    embeddings = [get_embedding(chunk) for chunk in chunks]
 
     collection.add(ids=ids, metadatas=metadatas, documents=chunks, embeddings=embeddings)
     return len(chunks)
 
 def retrieve_relevant_chunks(query, top_k=3):
     """Retrieve top-k relevant chunks for a query."""
-    query_embedding = get_embedding(query, model=EMBEDDING_MODEL)
+    query_embedding = get_embedding(query)
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=top_k,
