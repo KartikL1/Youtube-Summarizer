@@ -8,36 +8,52 @@ from chromadb import PersistentClient
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
 
+def chunk_text(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
+    """Split text into overlapping chunks"""
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunk = text[start:end]
+        chunks.append(chunk)
+        start += chunk_size - overlap
+    return chunks
+
 def get_youtube_transcript(video_url):
-    """Working transcript fetcher - FIXED"""
+    """Reliable transcript fetcher supporting auto-generated captions."""
     try:
-        from youtube_transcript_api import YouTubeTranscriptApi
+        from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
         
-        # Extract video ID
-        video_id_match = re.search(r"(?:v=|/)([0-9A-Za-z_-]{11})", video_url)
+        # Extract video ID from various YouTube URL formats
+        video_id_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", video_url)
         if not video_id_match:
             st.error("❌ Invalid YouTube URL")
             return None
-            
+        
         video_id = video_id_match.group(1)
         st.info("🔄 Fetching transcript...")
 
-        # FIXED: Use the correct method - it's NOT YouTubeTranscriptApi.get_transcript()
-        # The correct way is to call the function directly:
-        try:
-            # This is the correct syntax
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-            text = " ".join([t['text'] for t in transcript_list])
-            if text.strip():
-                st.success(f"✅ Found transcript ({len(text)} characters)")
-                return text.strip()
-        except Exception as e:
-            st.error(f"❌ No subtitles available: {str(e)}")
-            return None
-            
-    except Exception as e:
-        st.error(f"❌ Error: {str(e)}")
+        # Try fetching transcript in multiple common languages
+        for lang in ['en', 'en-US', 'en-GB', 'hi', 'auto']:
+            try:
+                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang])
+                text = " ".join([entry['text'] for entry in transcript])
+                if text.strip():
+                    st.success(f"✅ Found transcript ({len(text)} characters) in '{lang}'")
+                    return text.strip()
+            except (NoTranscriptFound, TranscriptsDisabled):
+                continue
+
+        st.error("❌ No subtitles available in any supported language.")
         return None
+
+    except VideoUnavailable:
+        st.error("❌ This video is unavailable.")
+        return None
+    except Exception as e:
+        st.error(f"❌ Error fetching transcript: {str(e)}")
+        return None
+
 def get_chroma_client_and_collection():
     client = PersistentClient(path="./chroma_db")
     collection = client.get_or_create_collection(name="youtube_rag")
