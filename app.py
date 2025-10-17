@@ -20,9 +20,7 @@ collection = client.get_or_create_collection("youtube_transcripts")
 # 🔍 Extract YouTube video ID
 # -----------------------------------
 def extract_video_id(url: str):
-    """
-    Extracts video ID from a YouTube URL.
-    """
+    """Extract video ID from a YouTube URL."""
     patterns = [
         r"v=([a-zA-Z0-9_-]{11})",
         r"youtu\.be/([a-zA-Z0-9_-]{11})",
@@ -36,33 +34,33 @@ def extract_video_id(url: str):
 
 
 # -----------------------------------
-# 🧾 Fetch Transcript Function
+# 🧾 Fetch Transcript (works for all versions)
 # -----------------------------------
 def get_youtube_transcript(url: str):
-    """
-    Fetches transcript for a given YouTube video URL using youtube-transcript-api.
-    Handles unavailable videos, disabled captions, and fallback languages.
-    """
+    """Fetch transcript using youtube-transcript-api (compatible with all versions)."""
     video_id = extract_video_id(url)
     if not video_id:
         raise ValueError("Invalid YouTube URL format.")
 
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-
-        # Try fetching English transcript first
-        try:
-            transcript = transcript_list.find_transcript(['en'])
-        except:
-            # If English not found, pick first available
-            available_langs = [t.language_code for t in transcript_list]
-            if available_langs:
-                transcript = transcript_list.find_transcript([available_langs[0]])
-            else:
-                raise NoTranscriptFound("No transcript available in any language.")
-
-        fetched = transcript.fetch()
+        # ✅ First try the new version API
+        if hasattr(YouTubeTranscriptApi, "list_transcripts"):
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            try:
+                transcript = transcript_list.find_transcript(['en'])
+            except:
+                available = [t.language_code for t in transcript_list]
+                if not available:
+                    raise NoTranscriptFound("No available transcript languages.")
+                transcript = transcript_list.find_transcript([available[0]])
+            fetched = transcript.fetch()
+        else:
+            # ✅ Fallback for older versions
+            fetched = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+        
         text = " ".join([x['text'] for x in fetched if x['text'].strip()])
+        if not text.strip():
+            raise RuntimeError("Transcript is empty or not available.")
         return text
 
     except VideoUnavailable:
@@ -79,9 +77,7 @@ def get_youtube_transcript(url: str):
 # 💾 Store Transcript in ChromaDB
 # -----------------------------------
 def add_transcript_to_collection(url: str):
-    """
-    Fetches a transcript and stores it in the Chroma collection.
-    """
+    """Fetch and store transcript."""
     st.info("🔄 Fetching transcript...")
     try:
         text = get_youtube_transcript(url)
@@ -102,12 +98,12 @@ def add_transcript_to_collection(url: str):
 
 
 # -----------------------------------
-# 🚀 Streamlit App Interface
+# 🚀 Streamlit UI
 # -----------------------------------
 st.set_page_config(page_title="YouTube Transcript Fetcher", page_icon="🎥", layout="centered")
 
 st.title("🎥 YouTube Transcript Fetcher + ChromaDB Store")
-st.caption("Extract video transcripts and save them locally for retrieval or RAG projects.")
+st.caption("Extract video transcripts and store them locally for future RAG or QA use.")
 
 youtube_url = st.text_input("🔗 Enter YouTube video URL:")
 
@@ -121,4 +117,4 @@ if st.button("Fetch & Store Transcript"):
         st.warning("⚠️ Please enter a valid YouTube video URL.")
 
 st.divider()
-st.markdown("✅ **Tip:** Try a video with captions, e.g. [How Great Leaders Inspire Action (TED)](https://www.youtube.com/watch?v=H14bBuluwB8)")
+st.markdown("💡 **Try a video with captions**, e.g. [How Great Leaders Inspire Action (TED)](https://www.youtube.com/watch?v=H14bBuluwB8)")
