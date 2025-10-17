@@ -3,7 +3,7 @@ import re
 import uuid
 from chromadb import PersistentClient
 
-# Import transcript API and exceptions globally
+# Import transcript API globally
 from youtube_transcript_api import (
     YouTubeTranscriptApi,
     TranscriptsDisabled,
@@ -29,30 +29,52 @@ def chunk_text(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
 
 
 def get_youtube_transcript(video_url):
-    """Fetch transcript from YouTube (auto or manual captions)."""
+    """Fetch transcript robustly for different library versions."""
     try:
-        # Extract video ID from any common YouTube URL pattern
+        # Extract video ID from multiple formats
         video_id_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", video_url)
         if not video_id_match:
-            st.error("❌ Invalid YouTube URL format.")
+            st.error("❌ Invalid YouTube URL.")
             return None
 
         video_id = video_id_match.group(1)
         st.info("🔄 Fetching transcript...")
 
-        # Try multiple possible language codes (auto + manual)
-        for lang in ['en', 'en-US', 'en-GB', 'hi', 'auto']:
-            try:
-                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang])
-                text = " ".join([entry['text'] for entry in transcript])
-                if text.strip():
-                    st.success(f"✅ Transcript found ({len(text)} characters) in '{lang}'.")
+        # Handle API version differences safely
+        if hasattr(YouTubeTranscriptApi, "list_transcripts"):
+            # ✅ Modern versions use list_transcripts()
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            # Prefer English or first available
+            for lang_code in ["en", "en-US", "en-GB", "hi"]:
+                try:
+                    transcript = transcript_list.find_transcript([lang_code])
+                    text = " ".join([entry['text'] for entry in transcript.fetch()])
+                    st.success(f"✅ Transcript found in '{lang_code}' ({len(text)} chars)")
                     return text.strip()
-            except (NoTranscriptFound, TranscriptsDisabled):
-                continue  # Try next language
+                except NoTranscriptFound:
+                    continue
+            # fallback to first available transcript
+            transcript = transcript_list.find_manually_created_transcript(transcript_list._manually_created_transcripts.keys()) \
+                if transcript_list._manually_created_transcripts else transcript_list._generated_transcripts.popitem()[1]
+            text = " ".join([entry['text'] for entry in transcript.fetch()])
+            st.success("✅ Fallback transcript fetched successfully.")
+            return text.strip()
 
-        st.error("❌ No subtitles found for this video.")
-        return None
+        elif hasattr(YouTubeTranscriptApi, "get_transcript"):
+            # ✅ Older versions use get_transcript()
+            for lang in ['en', 'en-US', 'en-GB', 'hi', 'auto']:
+                try:
+                    transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang])
+                    text = " ".join([entry['text'] for entry in transcript])
+                    st.success(f"✅ Transcript found ({len(text)} chars) in '{lang}'")
+                    return text.strip()
+                except (NoTranscriptFound, TranscriptsDisabled):
+                    continue
+            st.error("❌ No subtitles found for this video.")
+            return None
+        else:
+            st.error("❌ Unsupported youtube-transcript-api version.")
+            return None
 
     except VideoUnavailable:
         st.error("❌ The video is unavailable or restricted.")
@@ -76,14 +98,13 @@ def add_transcript_to_collection(youtube_url):
         return None
 
     chunks = chunk_text(text)
-    if len(chunks) == 0:
+    if not chunks:
         st.warning("⚠️ Transcript too short to process.")
         return None
 
     client, collection = get_chroma_client_and_collection()
     ids = [str(uuid.uuid4()) for _ in chunks]
     metadatas = [{"youtube_url": youtube_url, "chunk_index": i} for i in range(len(chunks))]
-
     collection.add(ids=ids, metadatas=metadatas, documents=chunks)
     return {"n_chunks": len(chunks)}
 
@@ -101,7 +122,6 @@ def answer_question(question, context_chunks):
     """Simple context-based response."""
     if not context_chunks:
         return "No relevant information found in stored transcripts."
-
     combined_context = " ".join(context_chunks)
     return f"Based on the video: {combined_context[:400]}..."
 
