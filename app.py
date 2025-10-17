@@ -7,37 +7,30 @@ from openai import OpenAI
 # ---------------- Config ----------------
 CHROMA_DB_PATH = "./chroma_db"
 EMBEDDING_MODEL = "text-embedding-3-small"
+GPT_MODEL = "gpt-3.5-turbo"
 
-# Initialize ChromaDB
+# ---------------- OpenAI Client ----------------
+# Replace with your key or use environment variable
+openai_client = OpenAI(api_key="YOUR_OPENAI_API_KEY_HERE")
+
+# ---------------- ChromaDB ----------------
 client = PersistentClient(path=CHROMA_DB_PATH)
 collection = client.get_or_create_collection("youtube_transcripts")
 
-# Initialize OpenAI client
-from openai import OpenAI
-
-openai_client = OpenAI(api_key="sk-1234567890abcdef1234567890abcdef12345678")
-
-
-
-# ---------------- Embedding Function ----------------
+# ---------------- Utilities ----------------
 def get_embedding(text, model=EMBEDDING_MODEL):
-    """Return embedding vector for given text using latest OpenAI SDK"""
     response = openai_client.embeddings.create(input=text, model=model)
     return response.data[0].embedding
 
-# ---------------- Transcript Utilities ----------------
 def get_transcript(video_url):
-    """Fetch transcript using pytube with safety checks."""
     try:
-        YouTube._js_cache.clear()  # avoid old cache issues
+        YouTube._js_cache.clear()
         yt = YouTube(video_url)
-
         if yt.age_restricted:
             raise RuntimeError("Video is age-restricted.")
         if not yt.captions:
-            raise RuntimeError("No captions available for this video.")
+            raise RuntimeError("No captions available.")
 
-        # Prefer English or auto-generated English
         caption = None
         for code in ["en", "a.en"]:
             if code in yt.captions:
@@ -53,30 +46,26 @@ def get_transcript(video_url):
         ]
         text = " ".join(lines)
         if not text.strip():
-            raise RuntimeError("Captions are empty after processing.")
+            raise RuntimeError("Captions empty after processing.")
         return text
 
     except Exception as e:
         raise RuntimeError(f"Unable to fetch transcript: {str(e)}")
 
 def chunk_text(text, chunk_size=500, overlap=50):
-    """Split text into chunks with overlap."""
     words = text.split()
     chunks = []
     i = 0
     while i < len(words):
-        chunk = words[i:i+chunk_size]
-        chunks.append(" ".join(chunk))
+        chunks.append(" ".join(words[i:i+chunk_size]))
         i += chunk_size - overlap
     return chunks
 
-# ---------------- ChromaDB Storage ----------------
 def add_transcript(video_url):
-    """Fetch transcript, create embeddings, and store in ChromaDB."""
     text = get_transcript(video_url)
     chunks = chunk_text(text)
     if not chunks:
-        raise RuntimeError("No chunks created from transcript.")
+        raise RuntimeError("No chunks created.")
 
     ids = [str(uuid.uuid4()) for _ in chunks]
     metadatas = [{"video_url": video_url, "chunk_index": i} for i in range(len(chunks))]
@@ -86,24 +75,26 @@ def add_transcript(video_url):
     return len(chunks)
 
 def retrieve_relevant_chunks(query, top_k=3):
-    """Retrieve top-k relevant chunks for a query."""
     query_embedding = get_embedding(query)
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=top_k,
         include=["documents", "metadatas"]
     )
-    docs = results["documents"][0] if results["documents"] else []
-    metas = results["metadatas"][0] if results["metadatas"] else []
-    return docs, metas
+    docs = results.get("documents", [[]])[0]
+    return docs
 
-def answer_question(query):
-    """Generate a simple answer from retrieved chunks."""
-    docs, metas = retrieve_relevant_chunks(query)
-    if not docs:
-        return "No relevant information found. Add a video first!"
-    combined_context = " ".join(docs)
-    return f"Based on the videos: {combined_context[:500]}..."
+def generate_gpt_answer(query, context_chunks):
+    if not context_chunks:
+        return "No relevant information found."
+    context_text = "\n\n".join(context_chunks)
+    prompt = f"Answer the question based on the following transcript excerpts:\n{context_text}\n\nQuestion: {query}"
+    response = openai_client.chat.completions.create(
+        model=GPT_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=300
+    )
+    return response.choices[0].message.content.strip()
 
 # ---------------- Streamlit UI ----------------
 st.set_page_config(page_title="YouTube RAG Q&A", layout="wide")
@@ -119,7 +110,7 @@ with col1:
         if video_url.strip():
             try:
                 n_chunks = add_transcript(video_url)
-                st.success(f"✅ Processed {n_chunks} chunks and stored in ChromaDB!")
+                st.success(f"✅ Processed {n_chunks} chunks!")
             except Exception as e:
                 st.error(f"❌ Failed: {str(e)}")
 
@@ -129,5 +120,9 @@ with col2:
     question = st.text_input("Your question", placeholder="What is this video about?")
     if st.button("Get Answer"):
         if question.strip():
-            answer = answer_question(question)
+            chunks = retrieve_relevant_chunks(question)
+            answer = generate_gpt_answer(question, chunks)
             st.success(f"💬 {answer}")
+            st.subheader("Retrieved Excerpts:")
+            for i, c in enumerate(chunks):
+                st.write(f"**Chunk {i+1}:** {c[:200]}...")
