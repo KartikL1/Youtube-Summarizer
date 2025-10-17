@@ -11,7 +11,7 @@ GPT_MODEL = "gpt-3.5-turbo"
 
 # ---------------- OpenAI Client ----------------
 # Replace with your key or use environment variable
-openai_client = OpenAI(api_key="YOUR_OPENAI_API_KEY_HERE")
+openai_client = OpenAI(api_key="sk-1234567890abcdef1234567890abcdef12345678")
 
 # ---------------- ChromaDB ----------------
 client = PersistentClient(path=CHROMA_DB_PATH)
